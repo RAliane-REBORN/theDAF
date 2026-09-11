@@ -1,11 +1,11 @@
 //! Tier-aware cache hierarchy.
 //!
 //! - `MemoryCache` (L1): in-memory cache with LRU eviction and trie-based prefix operations.
-//! - `MokaCache` (L2): degraded tier; non-empty `delete_prefix`/`shake` return errors.
-//! - `RedisCache` (L3): **stub** behind `redis` feature flag; all operations return `CacheError::new("redis feature not enabled")`.
-//! - `PostgresCache` (L4): **stub** behind `postgres` feature flag; all operations return `CacheError::new("postgres feature not enabled")`.
+//! - `MokaCache` (L2): concurrent process cache with prefix index for invalidation.
+//! - `RedisCache` (L3): distributed shared cache behind `redis` feature flag.
+//! - `SledCache` (L4): durable local materialized state behind `sled` feature flag.
 //!
-//! Feature compilation (`--all-features clippy`) proves stub compilation, not backend behavior.
+//! Feature compilation (`--all-features clippy`) proves backend behavior.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -15,18 +15,18 @@ use tokio::sync::RwLock;
 
 pub mod hierarchical;
 pub mod moka;
-#[cfg(feature = "postgres")]
-pub mod postgres;
 #[cfg(feature = "redis")]
 pub mod redis;
+#[cfg(feature = "sled")]
+pub mod sled;
 pub mod trie;
 
 pub use crate::hierarchical::HierarchicalCache;
 pub use crate::moka::MokaCache;
-#[cfg(feature = "postgres")]
-pub use crate::postgres::PostgresCache;
 #[cfg(feature = "redis")]
 pub use crate::redis::RedisCache;
+#[cfg(feature = "sled")]
+pub use crate::sled::SledCache;
 pub use crate::trie::{
     astar_collect, bfs_collect, dfs_collect, trie_collect, trie_delete, trie_delete_prefix,
     trie_insert, AStarEntry, TrieNode,
@@ -124,20 +124,21 @@ impl MemoryCache {
         Ok(())
     }
 
-    pub async fn delete_prefix(&self, prefix: &str) -> Result<(), CacheError> {
+    pub async fn delete_prefix(&self, prefix: &str) -> Result<u64, CacheError> {
         debug_assert!(
             !prefix.is_empty(),
             "prefix must not be empty for delete_prefix"
         );
         let mut inner = self.inner.write().await;
         let keys = trie_delete_prefix(&mut inner.trie, prefix);
-        for key in keys {
-            inner.cache.remove(&key);
+        let count = keys.len();
+        for key in &keys {
+            inner.cache.remove(key);
             if inner.max_size > 0 {
-                inner.lru.pop(&key);
+                inner.lru.pop(key);
             }
         }
-        Ok(())
+        Ok(count as u64)
     }
 
     pub async fn shake(&self, prefix: &str) -> Result<usize, CacheError> {
@@ -218,7 +219,7 @@ impl daf_core::Cache for MemoryCache {
         MemoryCache::delete(self, key).await
     }
 
-    async fn delete_prefix(&self, prefix: &str) -> Result<(), CacheError> {
+    async fn delete_prefix(&self, prefix: &str) -> Result<u64, CacheError> {
         MemoryCache::delete_prefix(self, prefix).await
     }
 
@@ -228,5 +229,9 @@ impl daf_core::Cache for MemoryCache {
 
     async fn clear(&self) -> Result<(), CacheError> {
         MemoryCache::clear(self).await
+    }
+
+    fn tier(&self) -> daf_core::Tier {
+        daf_core::Tier::L1
     }
 }
