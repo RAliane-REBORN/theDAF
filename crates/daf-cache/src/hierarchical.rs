@@ -92,35 +92,26 @@ impl fmt::Debug for HierarchicalCache {
 impl Cache for HierarchicalCache {
     async fn get(&self, key: &str) -> Result<Option<CacheEntry>, CacheError> {
         debug_assert!(!key.is_empty(), "cache key must not be empty");
-        let tiers: [&Arc<dyn Cache>; 6] = [
-            self.l0.as_ref().unwrap_or(&self.l1),
-            &self.l1,
-            &self.l2,
-            &self.l3,
-            &self.l4,
-            self.l5.as_ref().unwrap_or(&self.l4),
-        ];
+        let l0 = self.l0.as_ref().ok_or_else(|| {
+            CacheError::new("L0 cache tier is not configured")
+        })?;
+        let l5 = self.l5.as_ref().ok_or_else(|| {
+            CacheError::new("L5 cache tier is not configured")
+        })?;
+        let tiers: [&Arc<dyn Cache>; 6] =
+            [l0, &self.l1, &self.l2, &self.l3, &self.l4, l5];
         for (i, tier) in tiers.iter().enumerate() {
             match tier.get(key).await {
                 Ok(Some(e)) => {
                     if i > 0 {
-                        if let Err(promo_err) =
-                            self.l1.set(key.to_string(), Arc::clone(&e.value)).await
-                        {
-                            tracing::warn!(
-                                tier = %i,
-                                error = %promo_err,
-                                "l1 promotion failed; serving value without caching at l1"
-                            );
-                        }
+                        self.l1
+                            .set(key.to_string(), Arc::clone(&e.value))
+                            .await?;
                     }
                     return Ok(Some(e));
                 }
                 Ok(None) => continue,
-                Err(e) => {
-                    tracing::warn!(tier = %i, error = %e, "tier read error; falling through");
-                    continue;
-                }
+                Err(e) => return Err(e),
             }
         }
         Ok(None)
@@ -133,27 +124,23 @@ impl Cache for HierarchicalCache {
     ) -> Result<(), CacheError> {
         debug_assert!(!key.is_empty(), "cache key must not be empty");
         if let Some(l0) = &self.l0 {
-            if let Err(e) = l0.set(key.clone(), Arc::clone(&value)).await {
-                tracing::warn!(error = %e, "l0 set degraded; continuing");
-            }
+            l0.set(key.clone(), Arc::clone(&value)).await?;
         }
         self.l1.set(key, value).await
     }
 
     async fn delete(&self, key: &str) -> Result<(), CacheError> {
         debug_assert!(!key.is_empty(), "cache key must not be empty");
-        let tiers: [&Arc<dyn Cache>; 6] = [
-            self.l0.as_ref().unwrap_or(&self.l1),
-            &self.l1,
-            &self.l2,
-            &self.l3,
-            &self.l4,
-            self.l5.as_ref().unwrap_or(&self.l4),
-        ];
+        let l0 = self.l0.as_ref().ok_or_else(|| {
+            CacheError::new("L0 cache tier is not configured")
+        })?;
+        let l5 = self.l5.as_ref().ok_or_else(|| {
+            CacheError::new("L5 cache tier is not configured")
+        })?;
+        let tiers: [&Arc<dyn Cache>; 6] =
+            [l0, &self.l1, &self.l2, &self.l3, &self.l4, l5];
         for tier in tiers {
-            if let Err(e) = tier.delete(key).await {
-                tracing::warn!(error = %e, "tier delete degraded; continuing");
-            }
+            tier.delete(key).await?;
         }
         Ok(())
     }
@@ -163,57 +150,49 @@ impl Cache for HierarchicalCache {
             !prefix.is_empty(),
             "prefix must not be empty for delete_prefix"
         );
-        let tiers: [&Arc<dyn Cache>; 6] = [
-            self.l0.as_ref().unwrap_or(&self.l1),
-            &self.l1,
-            &self.l2,
-            &self.l3,
-            &self.l4,
-            self.l5.as_ref().unwrap_or(&self.l4),
-        ];
+        let l0 = self.l0.as_ref().ok_or_else(|| {
+            CacheError::new("L0 cache tier is not configured")
+        })?;
+        let l5 = self.l5.as_ref().ok_or_else(|| {
+            CacheError::new("L5 cache tier is not configured")
+        })?;
+        let tiers: [&Arc<dyn Cache>; 6] =
+            [l0, &self.l1, &self.l2, &self.l3, &self.l4, l5];
         let mut total: u64 = 0;
         for tier in tiers {
-            match tier.delete_prefix(prefix).await {
-                Ok(n) => total += n,
-                Err(e) => tracing::warn!(error = %e, "tier delete_prefix degraded; continuing"),
-            }
+            total += tier.delete_prefix(prefix).await?;
         }
         Ok(total)
     }
 
     async fn clear(&self) -> Result<(), CacheError> {
-        let tiers: [&Arc<dyn Cache>; 6] = [
-            self.l0.as_ref().unwrap_or(&self.l1),
-            &self.l1,
-            &self.l2,
-            &self.l3,
-            &self.l4,
-            self.l5.as_ref().unwrap_or(&self.l4),
-        ];
+        let l0 = self.l0.as_ref().ok_or_else(|| {
+            CacheError::new("L0 cache tier is not configured")
+        })?;
+        let l5 = self.l5.as_ref().ok_or_else(|| {
+            CacheError::new("L5 cache tier is not configured")
+        })?;
+        let tiers: [&Arc<dyn Cache>; 6] =
+            [l0, &self.l1, &self.l2, &self.l3, &self.l4, l5];
         for tier in tiers {
-            if let Err(e) = tier.clear().await {
-                tracing::warn!(error = %e, "tier clear degraded; continuing");
-            }
+            tier.clear().await?;
         }
         Ok(())
     }
 
     async fn shake(&self, prefix: &str) -> Result<usize, CacheError> {
         debug_assert!(!prefix.is_empty(), "prefix must not be empty for shake");
-        let tiers: [&Arc<dyn Cache>; 6] = [
-            self.l0.as_ref().unwrap_or(&self.l1),
-            &self.l1,
-            &self.l2,
-            &self.l3,
-            &self.l4,
-            self.l5.as_ref().unwrap_or(&self.l4),
-        ];
+        let l0 = self.l0.as_ref().ok_or_else(|| {
+            CacheError::new("L0 cache tier is not configured")
+        })?;
+        let l5 = self.l5.as_ref().ok_or_else(|| {
+            CacheError::new("L5 cache tier is not configured")
+        })?;
+        let tiers: [&Arc<dyn Cache>; 6] =
+            [l0, &self.l1, &self.l2, &self.l3, &self.l4, l5];
         let mut total: usize = 0;
         for tier in tiers {
-            match tier.shake(prefix).await {
-                Ok(n) => total += n,
-                Err(e) => tracing::warn!(error = %e, "tier shake degraded; continuing"),
-            }
+            total += tier.shake(prefix).await?;
         }
         Ok(total)
     }
