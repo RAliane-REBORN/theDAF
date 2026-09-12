@@ -14,11 +14,10 @@ serde.workspace = true
 serde_json.workspace = true
 moka = { version = "0.12", features = ["future"] }
 tracing = "0.1"
-tracing = "0.1"
 
 [features]
 redis = ["dep:redis"]
-postgres = ["dep:sqlx"]
+sled = ["dep:sled"]
 
 [dependencies.redis]
 version = "0.27"
@@ -26,8 +25,6 @@ optional = true
 default-features = false
 features = ["tokio-comp", "connection-manager"]
 
-[dependencies.sqlx]
-version = "0.8"
+[dependencies.sled]
+version = "0.34"
 optional = true
-default-features = false
-features = ["runtime-tokio", "postgres"]

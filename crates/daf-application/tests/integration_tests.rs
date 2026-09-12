@@ -1248,7 +1248,9 @@ async fn test_cache_entry_tier_from_hierarchical() {
     let l2 = Arc::new(MemoryCache::new(1024)) as Arc<dyn daf_core::Cache>;
     let l3 = Arc::new(MemoryCache::new(1024)) as Arc<dyn daf_core::Cache>;
     let l4 = Arc::new(MemoryCache::new(1024)) as Arc<dyn daf_core::Cache>;
-    let hierarchical = Arc::new(daf_cache::HierarchicalCache::new(l1, l2, l3, l4));
+    let hierarchical = Arc::new(daf_cache::HierarchicalCache::new(
+        None, l1, l2, l3, l4, None,
+    ));
 
     let daf = DataAccessFactory::new(repo.clone(), hierarchical, None, None).create();
 
@@ -1281,7 +1283,7 @@ async fn hierarchical_delete_prefix_is_best_effort_across_tiers() {
     let l2 = Arc::new(MokaCache::new(1024)) as Arc<dyn daf_core::Cache>;
     let l3 = Arc::new(MemoryCache::new(1024)) as Arc<dyn daf_core::Cache>;
     let l4 = Arc::new(MemoryCache::new(1024)) as Arc<dyn daf_core::Cache>;
-    let cache = Arc::new(HierarchicalCache::new(l1, l2, l3, l4));
+    let cache = Arc::new(HierarchicalCache::new(None, l1, l2, l3, l4, None));
 
     // Moka L2 returns Err on non-empty prefix; best-effort (INV-001) must not abort
     // and must still return Ok (invalidation is advisory; generation check safety).
@@ -1509,7 +1511,7 @@ async fn put_with_moka_l2_advances_generation_despite_cache_degradation() {
     let l2 = Arc::new(MokaCache::new(1024)) as Arc<dyn daf_core::Cache>;
     let l3 = Arc::new(MemoryCache::new(1024)) as Arc<dyn daf_core::Cache>;
     let l4 = Arc::new(MemoryCache::new(1024)) as Arc<dyn daf_core::Cache>;
-    let cache = Arc::new(HierarchicalCache::new(l1, l2, l3, l4));
+    let cache = Arc::new(HierarchicalCache::new(None, l1, l2, l3, l4, None));
     let daf = make_daf(
         repo.clone() as Arc<dyn Repository<JsonValue>>,
         cache.clone(),

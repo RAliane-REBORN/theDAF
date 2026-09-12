@@ -14,10 +14,12 @@ pub type JsonValue = serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Tier {
+    L0,
     L1,
     L2,
     L3,
     L4,
+    L5,
 }
 
 #[derive(Debug, Clone)]
@@ -269,9 +271,13 @@ pub trait Cache: Send + Sync {
     async fn get(&self, key: &str) -> Result<Option<CacheEntry>, CacheError>;
     async fn set(&self, key: String, value: Arc<dyn Any + Send + Sync>) -> Result<(), CacheError>;
     async fn delete(&self, key: &str) -> Result<(), CacheError>;
-    async fn delete_prefix(&self, prefix: &str) -> Result<(), CacheError>;
+    async fn delete_prefix(&self, prefix: &str) -> Result<u64, CacheError>;
     async fn shake(&self, prefix: &str) -> Result<usize, CacheError>;
     async fn clear(&self) -> Result<(), CacheError>;
+
+    fn tier(&self) -> Tier {
+        Tier::L1
+    }
 }
 
 #[async_trait]
